@@ -1,0 +1,23 @@
+services:
+  backend:
+    environment:
+      NODE_ENV: production
+      UPLOAD_SCAN_REQUIRED: 'true'
+      FRONTEND_URL: https://${DOMAIN:?Set DOMAIN}
+      APP_URL: https://${DOMAIN:?Set DOMAIN}
+  worker:
+    environment:
+      NODE_ENV: production
+      FRONTEND_URL: https://${DOMAIN:?Set DOMAIN}
+  proxy:
+    ports: ['443:443', '443:443/udp']
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL}
+    volumes:
+      - ./ops/Caddyfile.production:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+volumes:
+  caddy_data:
+  caddy_config:

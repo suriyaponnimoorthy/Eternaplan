@@ -1,0 +1,105 @@
+name: eternaplan
+x-backend-env: &backend-env
+  NODE_ENV: ${NODE_ENV:-development}
+  PORT: 5000
+  DB_HOST: db
+  DB_PORT: 3306
+  DB_NAME: eternaplan_db
+  DB_USER: eternaplan
+  DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD}
+  JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET}
+  JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?Set JWT_REFRESH_SECRET}
+  DATA_ENCRYPTION_KEY: ${DATA_ENCRYPTION_KEY:?Set DATA_ENCRYPTION_KEY}
+  FRONTEND_URL: ${FRONTEND_URL:-http://localhost}
+  APP_URL: ${FRONTEND_URL:-http://localhost}
+  TRUST_PROXY_HOPS: 1
+  PRIVATE_UPLOAD_DIR: /app/private-uploads
+  UPLOAD_SCAN_REQUIRED: ${UPLOAD_SCAN_REQUIRED:-true}
+  SMTP_HOST: ${SMTP_HOST:-}
+  SMTP_PORT: ${SMTP_PORT:-587}
+  SMTP_USER: ${SMTP_USER:-}
+  SMTP_PASS: ${SMTP_PASS:-}
+  EMAIL_FROM: ${EMAIL_FROM:-}
+  EMAIL_FROM_NAME: EternaPlaan
+  TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+  TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+  TWILIO_FROM_NUMBER: ${TWILIO_FROM_NUMBER:-}
+  STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+  STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  OPENAI_MODEL: ${OPENAI_MODEL:-}
+  AI_DAILY_REQUEST_LIMIT: ${AI_DAILY_REQUEST_LIMIT:-500}
+services:
+  db:
+    image: mysql:8.0.46
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?Set DB_ROOT_PASSWORD}
+      MYSQL_DATABASE: eternaplan_db
+      MYSQL_USER: eternaplan
+      MYSQL_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD}
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+    healthcheck:
+      test: [CMD-SHELL, 'MYSQL_PWD="$$MYSQL_ROOT_PASSWORD" mysqladmin ping -h 127.0.0.1 -uroot --silent']
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    networks: [data]
+  clamav:
+    image: clamav/clamav:stable
+    restart: unless-stopped
+    volumes: [clamav_data:/var/lib/clamav]
+    networks: [data, web]
+  migrate:
+    build: {context: ., dockerfile: backend/Dockerfile}
+    environment:
+      <<: *backend-env
+      DB_MIGRATION_USER: ${DB_MIGRATION_USER:-eternaplan}
+      DB_MIGRATION_PASSWORD: ${DB_MIGRATION_PASSWORD:-${DB_PASSWORD}}
+    command: [node, scripts/migrate.js]
+    depends_on:
+      db: {condition: service_healthy}
+    networks: [data]
+  backend:
+    build: {context: ., dockerfile: backend/Dockerfile}
+    restart: unless-stopped
+    environment: *backend-env
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      clamav: {condition: service_started}
+    volumes: [private_data:/app/private-uploads]
+    networks: [data, web]
+    healthcheck:
+      test: [CMD, node, -e, 'fetch("http://localhost:5000/ready").then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+  worker:
+    build: {context: ., dockerfile: backend/Dockerfile}
+    restart: unless-stopped
+    environment: *backend-env
+    command: [node, src/worker.js]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    networks: [data, web]
+  frontend:
+    build: {context: ./frontend, dockerfile: Dockerfile}
+    restart: unless-stopped
+    networks: [web]
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports: ['80:80']
+    volumes:
+      - ./ops/Caddyfile.local:/etc/caddy/Caddyfile:ro
+    depends_on: [frontend, backend]
+    networks: [web]
+volumes:
+  db_data:
+  private_data:
+  clamav_data:
+networks:
+  data: {internal: true}
+  web:
