@@ -1,4 +1,4 @@
-# EternaPlaan — Event Planning Workspace
+# EternaPlan — Event Planning Workspace
 
 React + Express + MySQL event management with explainable supplier discovery, an optional AI concierge, hosted payments, private documents and separate staff/customer/vendor access.
 
